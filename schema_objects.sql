@@ -34,7 +34,8 @@ as
 begin
   select ora_type(n, v, d)
   into ret
-  from ora_table;
+  from ora_table
+  where n = p;
 
   return ret;
 end ora_func_get;
