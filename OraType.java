@@ -23,6 +23,58 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import oracle.sql.StructDescriptor;
 import oracle.sql.STRUCT;
+import java.util.Date;
+
+import oracle.sql.ORAData;
+import oracle.sql.ORADataFactory;
+import oracle.sql.Datum;
+import oracle.jdbc.OracleCallableStatement;
+
+class ora_type implements ORAData, ORADataFactory
+{
+  static final ora_type _ora_typeFactory = new ora_type();
+
+  public int n;
+  public String v;
+  public Date d;
+
+  public static ORADataFactory getORADataFactory() {
+    return _ora_typeFactory;
+  }
+
+  public ora_type () {}
+  public ora_type(int n, String v, Date d)
+  {
+    this.n = n;
+    this.v = v;
+    this.d = d;
+  }
+
+  @Override
+  public Datum toDatum(Connection conn) throws SQLException
+  {
+    StructDescriptor sd = StructDescriptor.createDescriptor("ORA_TYPE", conn);
+    Object [] attributes = {
+      n,
+      v,
+      d
+    };
+    return new STRUCT(sd, conn, attributes);
+  }
+
+  public ORAData create(Datum datum, int sqlType) throws SQLException
+  {
+    if (datum == null) return null;
+
+    Object [] attributes = ((STRUCT) datum).getOracleAttributes();
+
+    return new ora_type(
+      (int) attributes[0],
+      (String) attributes[1],
+      (Date) attributes[2]
+    );
+  }
+}
 
 public class OraType {
 
@@ -35,7 +87,6 @@ public class OraType {
         conn = ds.getConnection();
         conn.setAutoCommit(false);
     }
-
 
     public static void main(String[] args) {
 
@@ -65,23 +116,22 @@ public class OraType {
     }
 
     void set(int n, String v, String d) throws SQLException, java.text.ParseException {
-      CallableStatement stmt;
+      OracleCallableStatement stmt;
 
-      StructDescriptor desc = StructDescriptor.createDescriptor ("ORA_TYPE", conn); 
-      Object[] attrs = {
-        n,
-        v,
-        new java.sql.Date((new SimpleDateFormat("yyyy-MM-dd")).parse(d).getTime())
-      }; 
-      STRUCT s = new STRUCT (desc, conn, attrs);
+			// Prepare Java object
+			ora_type oType = new ora_type();
+			oType.n = n;
+			oType.v = v;
+			oType.d =
+        new java.sql.Date((new SimpleDateFormat("yyyy-MM-dd")).parse(d).getTime());
 
-      stmt = conn.prepareCall("{?= call ora_func_set(?)}");
+      stmt = (OracleCallableStatement)conn.prepareCall("{?= call ora_func_set(?)}");
 
       stmt.registerOutParameter(1, OracleTypes.INTEGER);
-      stmt.setObject(2, s);
+      stmt.setORAData(2, oType); // or we can use stmt.setObject(2, oType);
       stmt.execute();
       conn.commit();
-      
+
       System.out.println("Return value: " + stmt.getInt(1));
     }
 
