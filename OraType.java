@@ -1,16 +1,17 @@
 /**
- * export ORACLE_HOME=/path/to/oracle/home
- * export LD_LIBRARY_PATH=$ORACLE_HOME/lib:$LD_LIBRARY_PATH
+ * Based on "Oracle Database JDBC Developer’s Guide 11g Release 2 (11.2)"
+ *
+ * Oracle's ojdbc6.jar is needed to run this example
  *
  * Compile:
- * javac -classpath $ORACLE_HOME/jdbc/lib/ojdbc6.jar OraType.java
-
+ * javac -classpath .:/path/to/jdbc/lib/ojdbc6.jar OraType.java
+ *
  * Run:
- *  java -classpath .:${ORACLE_HOME}/jdbc/lib/ojdbc6.jar \
+ *  java -classpath .:/path/to/jdbc/lib/ojdbc6.jar \
  *    OraType "user/pass@host:1521:sid" 1 One 2017-0l-04
-
- * java -classpath .:$ORACLE_HOME/jdbc/lib/ojdbc6.jar \
- *    OraType "user/pass@host:1521:sid" 1
+ *
+ * java  -classpath .:/path/to/jdbc/lib/ojdbc6.jar \
+ *     OraType "user/pass@host:1521:sid" 1
  *
  */
 
@@ -30,18 +31,18 @@ import oracle.sql.ORADataFactory;
 import oracle.sql.Datum;
 import oracle.jdbc.OracleCallableStatement;
 
+// The type map (between Oracle type 'create type as ...' and Java class)
+// is not required when using Java classes that implement ORAData.
 class ora_type implements ORAData, ORADataFactory
 {
   static final ora_type _ora_typeFactory = new ora_type();
 
+  // The same fields as in Oracle type (ORA_TYPE)
   public int n;
   public String v;
   public Date d;
 
-  public static ORADataFactory getORADataFactory() {
-    return _ora_typeFactory;
-  }
-
+  // Constructors
   public ora_type () {}
   public ora_type(int n, String v, Date d)
   {
@@ -50,28 +51,39 @@ class ora_type implements ORAData, ORADataFactory
     this.d = d;
   }
 
+  // Implement a method that produces the ORADataFactory instance
+  // for use with getORAData().
+  public static ORADataFactory getORADataFactory() {
+    return _ora_typeFactory;
+  }
+
+  // Implement interfaces for converting types between Oracle and Java
   @Override
   public Datum toDatum(Connection conn) throws SQLException
   {
     StructDescriptor sd = StructDescriptor.createDescriptor("ORA_TYPE", conn);
-    Object [] attributes = {
-      n,
-      v,
-      d
-    };
+    Object [] attributes = {n, v, d };
     return new STRUCT(sd, conn, attributes);
   }
 
+  // The JDBC driver will call create() from the object passed to getORAData(),
+  // returning to your Java application an instance of this class (ora_type)
+  //
+  // Currently parameter sqlType is not used,
+  // but can be used to handle type and subtypes
+  @Override
   public ORAData create(Datum datum, int sqlType) throws SQLException
   {
     if (datum == null) return null;
 
     Object [] attributes = ((STRUCT) datum).getOracleAttributes();
 
+    // Map and convert Oracle types (which are fields in ORA_TYPE)
+    // to Java class fields
     return new ora_type(
-      (int) attributes[0],
-      (String) attributes[1],
-      (Date) attributes[2]
+      ((oracle.sql.NUMBER) attributes[0]).intValue(),
+      ((oracle.sql.CHAR)   attributes[1]).stringValue(),
+      ((oracle.sql.DATE)   attributes[2]).dateValue()
     );
   }
 }
@@ -80,78 +92,100 @@ public class OraType {
 
     private Connection conn;
 
-    private void connect(String url) throws SQLException {
+    private void connect(String url) throws SQLException
+    {
         OracleDataSource ds = new OracleDataSource();
         ds.setURL("jdbc:oracle:thin:" + url);
 
         conn = ds.getConnection();
         conn.setAutoCommit(false);
     }
+    private void commit() throws SQLException
+    {
+      if (conn != null) { conn.commit(); }
+      System.out.println("COMMIT.");
+    }
 
-    public static void main(String[] args) {
+    private void rollback()
+    {
+      try {
+        if (conn != null) { conn.rollback(); }
+        System.out.println("ROLLBACK.");
+      } catch (SQLException e) {
+        System.out.println("Rollback: " + e.getMessage());
+      }
+    }
 
-      //System.out.println("args.length: " + args.length);
-      //System.out.println("args[0]: " + args[0]);
-      OraType c;
+    public static void main(String[] args)
+    {
+      // Input parameters
+      int    n;
+      String v;
+      Date   d;
 
+      // Class mapped to Oracle type
+      ora_type oraType;
+
+      OraType c = new OraType();
       try {
         switch (args.length) {
           case 4:
-                c = new OraType();
                 c.connect(args[0]);
-                c.set(Integer.parseInt(args[1]), args[2], args[3]);
+
+                // Parse cmdline parameters
+                SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+                n = Integer.parseInt(args[1]);
+                v = args[2];
+                d = new java.sql.Date(dateFormat.parse(args[3]).getTime());
+
+                // Pass object to database
+                oraType = new ora_type(n, v, d);
+                int ret = c.set(oraType);
+                System.out.println("Return value: " + ret);
+                c.commit();
+
                 break;
-          case 2:
-                c = new OraType();
+          case 2: // Receive object from database
                 c.connect(args[0]);
-                c.get(Integer.parseInt(args[1]));
+                n = Integer.parseInt(args[1]);
+
+                oraType = c.get(n);
+
+                System.out.println("n: " + oraType.n);
+                System.out.println("v: " + oraType.v);
+                System.out.println("d: " + oraType.d);
                 break;
           default:
                 System.out.println("Wrong parameters");
         }
       } catch (Exception e) {
-        //System.out.println("Exception: " + e.getMessage());
-        e.printStackTrace();
+        System.out.println("Exception: " + e.getMessage());
+        //e.printStackTrace();
+        c.rollback();
       }
     }
 
-    void set(int n, String v, String d) throws SQLException, java.text.ParseException {
-      OracleCallableStatement stmt;
+    int set(ora_type p) throws SQLException, java.text.ParseException
+    {
 
-			// Prepare Java object
-			ora_type oType = new ora_type();
-			oType.n = n;
-			oType.v = v;
-			oType.d =
-        new java.sql.Date((new SimpleDateFormat("yyyy-MM-dd")).parse(d).getTime());
-
-      stmt = (OracleCallableStatement)conn.prepareCall("{?= call ora_func_set(?)}");
+      OracleCallableStatement stmt =
+        (OracleCallableStatement)conn.prepareCall("{?= call ora_func_set(?)}");
 
       stmt.registerOutParameter(1, OracleTypes.INTEGER);
-      stmt.setORAData(2, oType); // or we can use stmt.setObject(2, oType);
+      stmt.setORAData(2, p);
       stmt.execute();
-      conn.commit();
-
-      System.out.println("Return value: " + stmt.getInt(1));
+      return stmt.getInt(1);
     }
 
-    void get(int p) throws SQLException {
-      CallableStatement stmt;
-
-      stmt = conn.prepareCall("{?= call ora_func_get(?)}");
+    ora_type get(int p) throws SQLException
+    {
+      OracleCallableStatement stmt =
+        (OracleCallableStatement)conn.prepareCall("{?= call ora_func_get(?)}");
 
       stmt.registerOutParameter(1, OracleTypes.STRUCT, "ORA_TYPE");
       stmt.setInt(2, p);
       stmt.execute();
 
-      java.sql.Struct jdbcStruct = (java.sql.Struct)stmt.getObject(1);
-      Object[] o = jdbcStruct.getAttributes();
-      int n = ((java.math.BigDecimal)o[0]).intValueExact();
-      String v = (String)o[1];
-      java.sql.Timestamp d = (java.sql.Timestamp)o[2];
-
-      System.out.println("n: " + n);
-      System.out.println("v: " + v);
-      System.out.println("d: " + d);
+      return (ora_type)stmt.getORAData(1, ora_type.getORADataFactory());
     }
 }
