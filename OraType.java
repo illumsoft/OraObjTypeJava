@@ -8,7 +8,7 @@
  *
  * Run:
  *  java -classpath .:/path/to/jdbc/lib/ojdbc6.jar \
- *    OraType "user/pass@host:1521:sid" 1 One 2017-0l-04
+ *    OraType "user/pass@host:1521:sid" 1 One 2017-01-04
  *
  * java  -classpath .:/path/to/jdbc/lib/ojdbc6.jar \
  *     OraType "user/pass@host:1521:sid" 1
@@ -36,6 +36,10 @@ import oracle.jdbc.OracleCallableStatement;
 class ora_type implements ORAData, ORADataFactory
 {
   static final ora_type _ora_typeFactory = new ora_type();
+  // I do not understand these magic names but they are mentioned
+  // in "Oracle Database JDBC Java API Reference 11g Release 2"
+  public static final int    _SQL_TYPECODE = oracle.jdbc.OracleTypes.STRUCT;
+  public static final String _SQL_NAME     = "ORA_TYPE";
 
   // The same fields as in Oracle type (ORA_TYPE)
   public int n;
@@ -61,7 +65,7 @@ class ora_type implements ORAData, ORADataFactory
   @Override
   public Datum toDatum(Connection conn) throws SQLException
   {
-    StructDescriptor sd = StructDescriptor.createDescriptor("ORA_TYPE", conn);
+    StructDescriptor sd = StructDescriptor.createDescriptor(_SQL_NAME, conn);
     Object [] attributes = {n, v, d };
     return new STRUCT(sd, conn, attributes);
   }
@@ -169,7 +173,7 @@ public class OraType {
     {
 
       OracleCallableStatement stmt =
-        (OracleCallableStatement)conn.prepareCall("{?= call ora_func_set(?)}");
+        (OracleCallableStatement)conn.prepareCall("{? = call ora_func_set(?)}");
 
       stmt.registerOutParameter(1, OracleTypes.INTEGER);
       stmt.setORAData(2, p);
@@ -180,9 +184,9 @@ public class OraType {
     ora_type get(int p) throws SQLException
     {
       OracleCallableStatement stmt =
-        (OracleCallableStatement)conn.prepareCall("{?= call ora_func_get(?)}");
+        (OracleCallableStatement)conn.prepareCall("{? = call ora_func_get(?)}");
 
-      stmt.registerOutParameter(1, OracleTypes.STRUCT, "ORA_TYPE");
+      stmt.registerOutParameter(1, ora_type._SQL_TYPECODE, ora_type._SQL_NAME);
       stmt.setInt(2, p);
       stmt.execute();
 
